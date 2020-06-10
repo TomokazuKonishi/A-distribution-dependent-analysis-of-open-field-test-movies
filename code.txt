@@ -1,0 +1,719 @@
+
+#####
+locally settled constants
+#####
+
+scale_size <-  1.622802     # the real size of the box / how many pixels in the image
+frame_rate <-  29.97
+
+###  importing the data
+
+result <-read.table("area.txt", sep="\t", header=T)
+ result <-as.matrix(result)
+
+# each stack may have multiple objects; that of the body have to be found snd stored
+
+ times<-unique(result[,1])
+
+   # container 
+areas<- array(0, dim=c(length(times), 4))
+
+for(i in 1: length(times)){
+ if(length(result[result[,1]==times[i],]) == 4){
+     areas[i,] <-result[result[,1]==times[i],]   # single object
+ 	} else{
+  areas[i,] <-    #  choosing the largest one
+   result[result[,1]==times[i],][result[result[,1]==times[i],2] == max(result[result[,1]==times[i], 2], na.rm=T), ]
+       } }
+# velocity and acceleration 
+
+ dif <- (areas[2:dim(areas)[1], 3:4] -areas[2:dim(areas)[1]-1, 3:4] )
+ vel <- (dif[,1]^2+ dif[,2]^2)^0.5*scale_size*frame_rate
+ d1vel <- vel[2:length(vel)]- vel[2:length(vel)-1]
+ d1vel <- d1vel*frame_rate
+
+
+## noise reduction
+ meanposition <- array(NA, dim=c(dim(areas)[1],2))
+     for(i in 32: dim(areas)[1]-16){
+       meanposition[i,1]<- mean(areas[-15:15+i, 3], na.rm=T, trim=0.1)
+       meanposition[i,2]<- mean(areas[-15:15+i, 4], na.rm=T, trim=0.1) }
+
+ dif_meanposition <- meanposition[2:dim(meanposition)[1] ,] - meanposition[2:dim(meanposition)[1]-1 ,] 
+ vel_meanposition <- (dif_meanposition[,1]^2+ dif_meanposition[,2]^2)^0.5*scale_size*frame_rate
+
+ d1vel_meanposition<- vel_meanposition[2:length(vel_meanposition)]- vel_meanposition[2:length(vel_meanposition)-1]
+ d1vel_meanposition<-d1vel_meanposition*frame_rate
+
+
+## course of run
+
+ xlim<-range(meanposition[,1], na.rm=T)
+ ylim<-range(meanposition[,2], na.rm=T)
+png(width=4000, height=3500, pointsize = 160, file="allposition.png")
+par(lwd=8,  mex=0.6, mai=c(8,8,6,0.6))
+ plot((meanposition[,]*scale_size), xlim=xlim*scale_size, ylim=ylim*scale_size,   col="gray70", xlab="mm", ylab="mm", cex=0.1)
+par(new=T)
+ plot((meanposition[,]*scale_size), xlim=xlim*scale_size, ylim=ylim*scale_size, type="l",  col="gray50", xlab="mm", ylab="mm", cex=0.1, lwd=2)
+dev.off()
+
+### body area 
+sam <- sample(size=2000, (1:length(vel))[5001:45000] )
+ plot(log10(vel)[sam], log10(areas[,2]*scale_size^2)[sam])
+
+ # finding the cutoff-line /  specify two points and draw a line 
+locator(2)
+$`x`
+[1] 0.7485118 2.3738068
+$y
+[1] 3.439696 3.320324
+
+## determine the line by using the values
+
+ a=(3.439696- 3.320324)/(0.7485118 -2.3738068)
+ b=3.439696 - a*0.7485118
+
+
+### Fine turning for the slope and intercept
+
+findb <- function(b) {
+  dash <- which(log10(vel)*a+b <  (log10(areas[1:length(vel),2]*scale_size^2)))
+  search <- setdiff(1:length(vel), dash)
+  search[which(vel[search]==0)] <-NA
+  search<-search[!is.na(search)]
+  
+  exp_dash <- qexp(ppoints(length(dash)), rate=1)
+  exp_search <-  qexp(ppoints(length(search)), rate= 1)
+  
+  ab_dash <- lm(log10(sort(vel[dash]))[2500:length(dash)] ~ log10(exp_dash)[2500:length(dash)])
+  ab_search <- lm(log10(sort(vel[search])[2500:length(search)]) ~ log10(exp_search)[2500:length(search)])
+    distr <- hist(plot=FALSE, c( log10(exp_search)* ab_search[[1]][2]+  ab_search[[1]][1], 
+       log10(exp_dash)* ab_dash[[1]][2]+  ab_dash[[1]][1]), breaks=-500:50/10 )
+    distr2 <- hist(plot=FALSE, log10(vel), breaks=-500:50/10 )
+ sum(abs(distr$counts-distr2$counts)) }
+
+finda <- function(a) {
+  dash <- which(log10(vel)*a+b <  (log10(areas[1:length(vel),2]*scale_size^2)))
+  search <- setdiff(1:length(vel), dash)
+  search[which(vel[search]==0)] <-NA
+  search<-search[!is.na(search)]
+  
+  exp_dash <- qexp(ppoints(length(dash)), rate=1)
+  exp_search <-  qexp(ppoints(length(search)), rate= 1)
+  
+  ab_dash <- lm(log10(sort(vel[dash]))[2500:length(dash)] ~ log10(exp_dash)[2500:length(dash)])
+  ab_search <- lm(log10(sort(vel[search])[2500:length(search)]) ~ log10(exp_search)[2500:length(search)])
+    distr <- hist(plot=FALSE, c( log10(exp_search)* ab_search[[1]][2]+  ab_search[[1]][1], 
+       log10(exp_dash)* ab_dash[[1]][2]+  ab_dash[[1]][1]), breaks=-500:50/10 )
+    distr2 <- hist(plot=FALSE, log10(vel), breaks=-500:50/10 )
+   sum(abs(distr$counts-distr2$counts)) }
+
+# repeat these 
+for( i in 1:10){
+  a<- optimize(finda, c(a*0.8, a*1.2 ))$minimum
+  b<- optimize(findb, c(b-0.05, b+0.05))$minimum
+  cat(c(b, "\n"))
+  }   # until reaching to the plateau
+
+
+
+  dash <- which(log10(vel)*a+b <  (log10(areas[1:length(vel),2]*scale_size^2)))
+  search <- setdiff(1:length(vel), dash)
+  search[which(vel[search]==0)] <-NA
+  search<-search[!is.na(search)]
+  
+  
+ 
+
+### dash duration
+# finding the start and end of dash times
+
+times <-1:length(vel)*0
+ times[dash] <-1
+
+ start<-end<-0
+
+for(i in 3:length(vel)-2){
+ if(times[i] == 0) {
+  if(times[i+1] ==1) start <- c(start, i+1) }
+ if(times[i] == 1) {
+  if(times[i+1] ==0) end <- c(end, i) }  }
+
+
+### stop and check the sequences
+start[1:10]
+end[1:10]
+###
+
+if(mean(end[3:length(end)-1]-start[3:length(end)-1])>0){
+  start<-start[3:length(end)-1]
+  end<-end[3:length(end)-1]
+   } else {
+  start<-start[3:length(end)-2]
+  end<-end[3:length(end)-1]
+   }
+
+  dash_duration <- (end-start)
+  search_duration <- (start[3:length(start)-1]-end[3:length(start)-2] )
+
+id<-qexp(ppoints(length(dash_duration)), rate=1)
+qqplot(id, dash_duration)
+
+ kesu<-which(dash_duration<2)
+  for(i in 1: length(kesu)){
+  times[  end[kesu[i]]: start[kesu[i]] ] <-0}
+
+
+ start<-end<-0
+
+for(i in 3:length(vel)-2){
+ if(times[i] == 0) {
+  if(times[i+1] ==1) start <- c(start, i+1) }
+ if(times[i] == 1) {
+  if(times[i+1] ==0) end <- c(end, i) }  }
+
+
+if(mean(end[3:length(end)-1]-start[3:length(end)-1])>0){
+  start<-start[3:length(end)-1]
+  end<-end[3:length(end)-1]
+   } else {
+  start<-start[3:length(end)-2]
+  end<-end[3:length(end)-1]
+   }
+
+  dash_duration <- (end-start)
+  search_duration <- (start[3:length(start)-1]-end[3:length(start)-2] )
+
+
+id<-qexp(ppoints(length(search_duration)), rate=1)
+qqplot(id, search_duration)
+qqplot(log10(id), log10(search_duration)) 
+ kesu<-which(search_duration<2)
+
+
+
+##### dash duration
+
+  exp_dash_time <- qexp(ppoints(length(start)), rate=1)
+  ab_dash_time <- lm(log10(sort(dash_duration))[length(start):(length(start)*.7)] ~ log10(exp_dash_time)[length(start):(length(start)*.7)])
+  
+freq_dash <- round(length(dash_duration)/ ((length(vel)/30)/60), 1)
+
+png(width=4000, height=4300, pointsize = 160, file="QQ_duration_dash.png")
+  par(lwd=8,  mex=0.6, mai=c(8,8,6,0.6))
+ qqplot(log10(exp_dash_time), log10(dash_duration) ,xlab="log(Theoretical Quantile)", ylab="log(Dash Duration)")
+ abline(coef(ab_dash_time ))
+   text(labels=paste(freq_dash, " times/min"), x=-2, y=1.4, cex=0.8)
+  aa <- round(coef(ab_dash_time )[2], 3)
+  text(labels=paste( "slope = ", aa), x=-2, y=1.3, cex=0.8)
+  bb <- round(coef(ab_dash_time )[1], 3)
+  text(labels=paste( "intercept = ", bb), x=-2, y=1.2, cex=0.8)
+   cc<- round(10^bb, 3)
+  text(labels=paste(cc,  " (s)"), x=-2, y=1.1, cex=0.8)
+dev.off()
+
+  exp_dash_time <- qexp(ppoints(length(start)*100), rate=1)
+
+png(width=4000, height=4300, pointsize = 160, file="HIST_duration_dash.png")
+  par(lwd=8,  mex=0.6, mai=c(8,8,6,0.6))
+
+hist(log10(dash_duration), breaks=-10:50/10, xlim=c(0.2, 1.7), ylim=c(0, 140), main="Dash Duration", ylab="Frequency", xlab="log(s)", col="gray70", border="white", axes=FALSE)
+axis(1, lwd=8)
+axis(2, lwd=8)
+dist <- hist(plot=FALSE, log10(exp_dash_time)*ab_dash_time[[1]][2]+ab_dash_time[[1]][1],  breaks=-10000:20000/100)
+par(new=T)
+plot(dist$mids, dist$counts, xlim=c(0.2, 1.7), ylim=c(0, 1400), type="l", xlab="", ylab="", axes=FALSE)
+
+dev.off()
+
+
+
+### search duration
+# oppose of those of dash
+  exp_search_time <- qexp(ppoints(length(search_duration)), rate=1)
+  ab_search_time <- lm(log10(sort(search_duration))[length(search_duration):(length(search_duration)*.6)] ~ log10(exp_search_time)[length(search_duration):(length(search_duration)*.6)])
+
+png(width=4000, height=4300, pointsize = 160, file="QQ_duration_search.png")
+ par(lwd=8,  mex=0.6, mai=c(8,8,6,0.6))
+
+ qqplot(log10(exp_search_time), log10(search_duration ) ,xlab="log(Theoretical Quantile)", ylab="log(Search Duration)")
+ abline(coef(ab_search_time ))
+ aa <- round(coef(ab_search_time )[2], 3)
+ text(labels=paste( "slope = ", aa), x=-2, y=2, cex=0.8)
+ bb <- round(coef(ab_search_time )[1], 3)
+ text(labels=paste( "intercept = ", bb), x=-2, y=1.8, cex=0.8)
+  cc<- round(10^bb, 3)
+  text(labels=paste(cc,  " (s)"), x=-2, y=1.6, cex=0.8)
+dev.off()
+
+hist(log10(search_duration))
+
+  exp_search_time <- qexp(ppoints(length(start)*100), rate=1)
+
+png(width=4000, height=4300, pointsize = 160, file="HIST_duration_search.png")
+  par(lwd=8,  mex=0.6, mai=c(8,8,6,0.6))
+
+hist(log10(search_duration), breaks=-10:50/10, xlim=c(0.2, 3), ylim=c(0, 100), main="search Duration", ylab="Frequency", xlab="log(s)", col="gray70", border="white", axes=FALSE)
+axis(1, lwd=8)
+axis(2, lwd=8)
+dist <- hist(plot=FALSE, log10(exp_search_time)*ab_search_time[[1]][2]+ab_search_time[[1]][1],  breaks=-10000:20000/100)
+par(new=T)
+plot(dist$mids, dist$counts, xlim=c(0.2, 3), ylim=c(0, 1500), type="l", xlab="", ylab="", axes=FALSE)
+
+dev.off()
+
+
+ ######
+dash <- which(times==1)
+search <- which(times==0)
+
+  exp_dash <- qexp(ppoints(length(dash)), rate=1)
+  exp_search <-  qexp(ppoints(length(search)), rate= 1)
+  
+  ab_dash <- lm(log10(sort(vel[dash]))[2500:length(dash)] ~ log10(exp_dash)[2500:length(dash)])
+  freq_dash_time <- round(length(dash)/length(vel),3)
+  ab_search <- lm(log10(sort(vel[search])[2500:length(search)]) ~ log10(exp_search)[2500:length(search)])
+
+
+## QQ for speed
+ png(width=4000, height=4300, pointsize = 160, file="QQ_vel_dash.png")
+   par(lwd=8,  mex=0.6, mai=c(8,8,6,0.6))
+  qqplot(log10(exp_dash), log10(sort(vel[dash])) ,xlab="log(Theoretical Quantile)", ylab="log(Dash Speed)")
+   abline(coef(ab_dash))
+  text(labels=paste("frequency = ", freq_dash_time), x=-3, y=2.5, cex=0.8)
+  aa <- round(coef(ab_dash )[2], 3)
+  text(labels=paste( "slope = ", aa), x=-3, y=2.3, cex=0.8)
+  bb <- round(coef(ab_dash )[1], 3)
+  text(labels=paste( "intercept = ", bb), x=-3, y=2.1, cex=0.8)
+  cc<- round(10^bb, 1)
+  text(labels=paste(cc,  " (mm/s)"), x=-3, y=1.9, cex=0.8)
+ dev.off()
+
+ png(width=4000, height=4300, pointsize = 160, file="QQ_vel_search.png")
+   par(lwd=8,  mex=0.6, mai=c(8,8,6,0.6))
+  qqplot(log10(exp_search), log10(sort(vel[search])) )
+  abline(coef(ab_search))
+  text(labels=paste("frequency = ", 1-freq_dash_time), x=-3, y=2, cex=0.8)
+
+  aa <- round(coef(ab_search )[2], 3)
+  text(labels=paste( "slope = ", aa), x=-3, y=2.3-0.5, cex=0.8)
+  bb <- round(coef(ab_search )[1], 3)
+  text(labels=paste( "intercept = ", bb), x=-3, y=2.1-0.5, cex=0.8)
+  cc<- round(10^bb, 1)
+  text(labels=paste(cc,  " (mm/s)"), x=-3, y=1.9-0.5, cex=0.8)
+ dev.off()
+ 
+
+## Histogram for speed
+  distr2 <- hist(plot=FALSE, log10(vel), breaks=-500:50/10 )
+  ylim=c(0, max(distr2$counts))
+
+ exp_dash <- qexp(ppoints(length(dash)*100), rate=1)
+  exp_search <-  qexp(ppoints(length(search)*100), rate= 1)
+
+
+png(width=4000, height=4300, pointsize = 160, file="Hist_vel.png")
+   par(lwd=8,  mex=0.6, mai=c(8,8,6,0.6))
+  
+  hist(log10(vel), breaks=-500:500/10, xlim=c(-0.5, 3), 
+     ylim=ylim, xlab="", ylab="", main="", axes=FALSE, col="gray80", border="white")
+   par(new=T)
+  hist(log10(vel[dash]), breaks=-500:500/10, xlim=c(-0.5, 3), 
+      ylim=ylim, col="gray60", xlab="", ylab="", main="", axes=FALSE)
+  par(new=T)
+   distr <- hist( plot=FALSE,log10(exp_dash)* ab_dash[[1]][2]+  ab_dash[[1]][1], breaks=-5000:5000/100 )
+  plot(distr$mids, distr$counts, xlim=c(-0.5, 3), ylim=ylim*10, col="black", xlab="", ylab="", main="",type="l", lty=3, lwd=12, axes=FALSE)
+   par(new=T)
+  distr <- hist( plot=FALSE, log10(exp_search)* ab_search[[1]][2]+  ab_search[[1]][1], breaks=-5000:5000/100 , )
+  plot(distr$mids, distr$counts, xlim=c(-0.5, 3), ylim=ylim*10, col="black", xlab="", ylab="", main="",type="l", lty=3, lwd=12, axes=FALSE)
+   par(new=T)
+  distr <- hist(plot=FALSE, c( log10(exp_search)* ab_search[[1]][2]+  ab_search[[1]][1], 
+     log10(exp_dash)* ab_dash[[1]][2]+  ab_dash[[1]][1]), breaks=-5000:5000/100 )
+  plot(distr$mids, distr$counts, xlim=c(-0.5, 3), ylim=ylim*10, col="black", xlab="", ylab="",type="l", lty=1, lwd=16, axes=FALSE, main="log10(Velocity)")
+ axis(1, lwd=8)
+ axis(2, lwd=8)
+
+
+legend(-0.5, 41000, legend=c("dash","search","estimations","composed"), col=c("gray60","gray80","black","black"), lwd=c(50, 50, 16, 20), lty=c(1,1,3,1))
+
+dev.off()
+  
+r2 <- 9500
+r3 <- 4000
+r4 <- 5000
+
+quick <- qnorm(ppoints(r2*100), mean=2.51, sd=0.18)
+well <- qnorm(ppoints(r3*100), mean=1.9, sd=0.2)
+stop <- qnorm(ppoints(r4*100), mean=0.70, sd=0.3)
+slow <- qnorm(ppoints((length(vel)-r2-r3-r4)*100), mean=1.56 , sd= 0.35)
+
+
+
+length(c(slow, quick, well, stop))
+
+ide <-sort(c(slow,  quick,stop))
+ide <-sort(c(slow, well, stop, quick))
+
+
+a<-hist(ide , breaks=c(-20000:10000/100), plot=F)
+plot(a$mids, a$ counts,  xlim=c(0.5,3), ylim=c(0, 3500), ylab="", xlab="", axes=F, main="", type="l", lwd=1)
+
+
+ hist(log10(vel), breaks=c(-100:100/10) , xlim=c(-0.5,3), col="gray70",border="white" , ylim=ylim, xlab="log10(mm/s)", main="log10(Speed)")
+par(new=T)
+a<-hist(ide , breaks=c(-20000:10000/100), plot=FALSE)
+plot(a$mids, a$ counts,  xlim=c(-0.5,3), ylim=ylim, ylab="", xlab="", axes=F, main="", type="l", lwd=1)
+
+
+
+
+
+png(width=4000, height=4300, pointsize = 160, file="hist_raw2.png")
+par(lwd=8,  mex=0.6, mai=c(8,8,6,0.6))
+
+ hist(log10(vel), breaks=c(-200:100/10) , xlim=c(-0.5,3), col="gray70",border="white" , ylim=ylim, xlab="log10(mm/s)", main="log10(Velocity)", axes=FALSE)
+par(new=T)
+a<-hist(ide , breaks=c(-20000:10000/100), plot=FALSE)
+plot(a$mids, a$ counts,  xlim=c(-0.5,3), ylim=ylim*10, ylab="", xlab="", axes=FALSE, main="", type="l", lwd=12)
+par(new=T)
+a<-hist(slow , breaks=c(-20000:10000/100), plot=FALSE)
+plot(a$mids, a$ counts,  xlim=c(-0.5,3), ylim=ylim*10, ylab="", xlab="", axes=FALSE, main="", type="l", lwd=8, lty=8)
+par(new=T)
+a<-hist(quick , breaks=c(-20000:10000/100), plot=FALSE)
+plot(a$mids, a$ counts,  xlim=c(-0.5,3), ylim=ylim*10, ylab="", xlab="", axes=FALSE, main="", type="l", lwd=8, lty=8)
+par(new=T)
+a<-hist(well , breaks=c(-20000:10000/100), plot=FALSE)
+plot(a$mids, a$ counts,  xlim=c(-0.5,3), ylim=ylim*10, ylab="", xlab="", axes=FALSE, main="", type="l", lwd=8, lty=8)
+par(new=T)
+a<-hist(stop , breaks=c(-20000:10000/100), plot=FALSE)
+plot(a$mids, a$ counts,  xlim=c(-0.5,3), ylim=ylim*10, ylab="", xlab="", axes=FALSE, main="", type="l", lwd=8, lty=8)
+
+ axis(1, lwd=8)
+ axis(2, lwd=8)
+
+
+legend(-0.5, 41000, legend=c("estimations","composed"), col=c("black","black"), lwd=c(8, 12), lty=c(8,1))
+
+#text(x=1.08, y=1050, labels="(noise)", cex=0.8)
+dev.off()
+
+
+png(width=4000, height=4300, pointsize = 160, file="legend.png")
+par(lwd=8,  mex=0.6, mai=c(8,8,6,0.6))
+
+ hist(log10(vel), breaks=c(-200:100/10) , xlim=c(-0.5,3), col="white",border="white" , ylim=ylim, xlab="log10(mm/s)", main="log10(Velocity)", axes=FALSE)
+legend(-0.5, 4100, legend=c("speed (left)","acceleration"), col=c("black","black"), lwd=c(8, 6), lty=c(1,3))
+
+dev.off()
+
+
+
+### area vs velocity
+dashs <- sample(size=500, dash)
+
+ ylim=c(3.15,3.5)
+ xlim=c(-1, 3)
+
+png(width=4000, height=4300, pointsize = 160, file="Speed_Area.png")
+ par(lwd=8,  mex=0.6, mai=c(8,8,6,0.6))
+ plot(log10(vel)[sam], log10(areas[,2]*scale_size^2)[sam], xlim=xlim, ylim=ylim, pch=4, 
+     ylab="log10(Area)", xlab="log10(Speed)", axes=F)
+ par(new=T)
+  plot(log10(vel)[dashs], log10(areas[,2]*scale_size^2)[dashs], xlim=xlim,
+     ylim=ylim, col="white", cex=1, pch=15, xlab="", ylab="", axes=F)
+    par(new=T)
+  plot(log10(vel)[dashs], log10(areas[,2]*scale_size^2)[dashs], xlim=xlim, 
+    ylim=ylim, col="black", cex=1.5, pch=1, xlab="", ylab="", axes=T)
+ abline(b, a, lty=2)
+ legend(legend=c("dash","search"), pch=c(1, 4), x=0., y=3.5, cex=0.7)
+dev.off()
+
+
+
+###### Peaks
+
+  v1points <-  d1vel_meanposition*0
+  v1points [d1vel_meanposition >0] <-1
+  v1points[is.na(v1points)] <-0
+  
+  end_v1 <- start_v1 <-0
+  
+  for (i in 1:length(d1vel_meanposition)){
+  if(v1points[i]==0){
+  if(v1points[i+1]==1)  start_v1<- c(start_v1, i) }
+  
+  if(v1points[i]==1){
+  if(v1points[i+1]==0)  end_v1<- c(end_v1, i) } }
+  
+  hist(log10(vel_meanposition[end_v1]), breaks=-200:500/10, xlim=c(0,3))
+  hist(log10(vel[end_v1]), breaks=-200:500/10, xlim=c(0,3))
+  
+  hist(log10(vel[start_v1]), breaks=-20:50/10, xlim=c(0,3))
+  
+
+###recorded time
+ length(vel)/frame_rate
+ (s)
+
+
+#####  areas and rearing
+
+areas_search <- areas[setdiff(1:length(vel), dash),2]*scale_size^2
+ 
+png(width=4000, height=4300, pointsize = 160, file="hist_area.png")
+  par(lwd=8,  mex=0.6, mai=c(8,8,6,0.6))
+  
+  hist(areas[,2]*scale_size^2, breaks=0:30000*50, border="black", col="white", ylim=c(0, 4000), xlim=c(1450, 3000), xlab=expression(mm^2),  axes=F, main="Area", lwd=12)
+  par(new=T)
+  hist(areas[dash,2]*scale_size^2, breaks=0:30000*50, col=grey(0.5, alpha=0.7), ylim=c(0, 4000), xlim=c(1450, 3000), border="white", xlab="", ylab="", axes=F, main="")
+  #par(new=T)
+  #hist(areas[setdiff(1:length(vel), dash),2]*scale_size^2, breaks=0:200*50, border="black", col=grey(1, alpha=0), ylim=c(0, 4000), xlim=c(1450, 3000), xlab=expression(mm^2),  axes=F, main="Area", lwd=12)
+  
+  axis(1, lwd=8)
+  axis(2, lwd=8)
+  
+  legend(legend=c("dash",  "search"), pch=c(15,0), col=c(grey(0.5, alpha=0.7), "black"), x=2600, y=3800, cex=0.8)
+  
+  abline(v=median(areas_search)  -0.7* mad(areas_search), lty=2, lwd=12)
+  text(x=1750, y=3200, labels="(rearing)")
+  arrows(x1=1700, x0=median(areas_search)  -0.7* mad(areas_search), y0=3000, y1=3000, lwd=12, length = 0, lty=2)
+   arrows(x1=1680, x0=1705 , y0=3000, y1=3000, lwd=16, length = 1, lty=1)
+ 
+  abline(h=0)
+dev.off()
+  
+rearing_time <- vel*0
+ rearing_time [areas[,2]*scale_size^2 < median(areas_search)  -0.7* mad(areas_search)] <-1
+ start_r <- end_r <-0
+
+for(i in 3:length(vel)-2){
+ if(rearing_time[i]==0){
+  if(rearing_time[i+1]==1)  start_r<-c(start_r, i+1) }
+ if(rearing_time[i]==1){
+  if(rearing_time[i+1]==0)  end_r<-c(end_r, i) } }
+
+  rearing_duration <- end_r[1:length(end_r)]-start_r[1:length(end_r)]
+  rearing_duration <- rearing_duration[2:length(rearing_duration)]/frame_rate
+  ground_duration <- start_r[2:length(start_r)] - end_r[2:length(start_r)-1]
+  ground_duration <-ground_duration/frame_rate
+
+  exp_rearing_time <- qexp(ppoints(length(rearing_duration)), rate=1)
+  ab_rearing_time <- lm(log10(sort(rearing_duration))[(length(rearing_duration)*0.6):length(rearing_duration)] ~ 
+   log10(exp_rearing_time)[(length(rearing_duration)*0.6):length(rearing_duration)])
+  freq_rearings <- round(length(rearing_duration)/ ((length(vel)/30)/60), 1)
+
+
+png(width=4000, height=4300, pointsize = 160, file="QQ_rearing.png")
+  par(lwd=8,  mex=0.6, mai=c(8,8,6,0.6))
+  qqplot(log10(exp_rearing_time), log10(sort(rearing_duration)),xlab="log(Theoretical Quantile)", ylab="log(rearing Duration)")
+  abline(ab_rearing_time)
+  aa <- round(coef(ab_rearing_time )[2], 3)
+  text(labels=paste( "slope = ", aa), x=-2, y=0.4, cex=0.8)
+  bb <- round(coef(ab_rearing_time )[1], 3)
+  text(labels=paste( "intercept = ", bb), x=-2, y=0.2, cex=0.8)
+  cc<- round(10^bb, 3)
+  text(labels=paste(cc,  " (s)"), x=-2, y=-0, cex=0.8)
+  text(labels=paste(freq_rearings, " times/min"), x=-2, y=0.6, cex=0.8)
+  
+dev.off()
+
+
+##  Search
+
+exp_ground_time <- qexp(ppoints(length(ground_duration)), rate=1)
+ab_ground_time <- lm(log10(sort(ground_duration))[(length(rearing_duration)*0.6):length(ground_duration)] ~ 
+   log10(exp_ground_time)[(length(rearing_duration)*0.6):length(ground_duration)])
+
+
+png(width=4000, height=4300, pointsize = 160, file="QQ_ground.png")
+  par(lwd=8,  mex=0.6, mai=c(8,8,6,0.6))
+ plot(log10(exp_ground_time), log10(sort(ground_duration)),xlab="log(Theoretical Quantile)", ylab="log(Ground Duration)")
+ abline(ab_ground_time)
+   aa <- round(coef(ab_ground_time )[2], 3)
+  text(labels=paste( "slope = ", aa), x=-2, y=0.4, cex=0.8)
+  bb <- round(coef(ab_ground_time )[1], 3)
+  text(labels=paste( "intercept = ", bb), x=-2, y=0.2, cex=0.8)
+  cc<- round(10^bb, 3)
+  text(labels=paste(cc,  " (s)"), x=-2, y=-0, cex=0.8)
+dev.off()
+
+
+#### acceleration 
+
+# finding the course parameters by using "dash"
+  heavy <- qnorm(ppoints(length(sort(d1vel[dash]))), sd=1)
+ light2 <- qnorm(ppoints(length(d1vel)-length(heavy)), sd=1)
+
+ qqplot(heavy, d1vel[dash])
+  ab_heavy <- lm(sort(d1vel[dash])~heavy)
+  abline(coef(ab_heavy))
+
+png(width=4000, height=4300, pointsize = 160, file="QQ_d1v.png")
+par(lwd=8,  mex=0.6, mai=c(8,9,6,0.6))
+qqnorm(d1vel[dash])
+  abline(coef(ab_heavy))
+  aa <- round(coef(ab_heavy)[2], 0)
+
+text(labels=expression(paste( " (mm/", {s^2}, ")")), x=0.7, y=-3000)
+text(labels=aa, x=-0.5, y=-3000)
+dev.off()
+
+
+
+ qqplot(light2, d1vel[setdiff(1:length(d1vel), dash)])
+  ab_light <- lm(sort(d1vel[setdiff(1:length(d1vel), dash)])~light2)
+ abline(coef(ab_light))
+
+ heavy <- qnorm(ppoints(length(sort(d1vel[dash]))+000), sd=800)
+  noise <- qnorm(ppoints(1000), sd=1)
+  light2 <- qnorm(ppoints(length(d1vel)-length(heavy)), sd=ab_light[[1]][2]*.85)
+
+ideal <- sort(c(heavy, light2))
+ plot(ideal, sort(d1vel))
+ abline(0,1)
+
+ hist(d1vel,  breaks=-120000:1200000*20, xlim=c(-2000,2000),xlab=expression(paste("sorted data (m/s" ^ "2", ")")) , main="Histogram", col="gray70",border="white", ylim=c(0,2000))
+ distr <-hist(ideal, breaks=-1200:1200*20,plot=FALSE)
+  par(new=T)
+ plot(distr$mids, distr$ counts,   xlim=c(-2000,2000),  ylim=c(0, 2000), ylab="", xlab="", axes=F, main="", type="l", lwd=1)
+ distr <-hist(heavy, breaks=-1200:1200*20,plot=FALSE)
+  par(new=T)
+ plot(distr$mids, distr$ counts,   xlim=c(-2000,2000),  ylim=c(0, 2000), ylab="", xlab="", axes=F, main="", type="l", lwd=1)
+ distr <-hist(light2, breaks=-1200:1200*20,plot=FALSE)
+  par(new=T)
+ plot(distr$mids, distr$ counts,   xlim=c(-2000,2000),  ylim=c(0, 2000), ylab="", xlab="", axes=F, main="", type="l", lwd=1)
+
+# turning a part into noise   Three parameters may have to be altered. 
+ 
+# turning a part into noise   Three parameters may have to be altered. 
+ 
+
+num_noise <- function(n_noise){
+ light <<- qnorm(ppoints(length(d1vel)-length(heavy)-n_noise), sd=sdl) # 
+   noise <<- qnorm(ppoints(n_noise), sd=sdn) #
+ ideal <<- sort(c(heavy, light, noise))
+ sum(abs(ideal-sort(d1vel) ))}
+
+
+sd_light <- function(sdl){
+ light <<- qnorm(ppoints(length(d1vel)-length(heavy)-n_noise), sd=sdl) # 
+   noise <<- qnorm(ppoints(n_noise), sd=100) #
+ ideal <<- sort(c(heavy, light, noise))
+ sum((ideal-sort(d1vel) )^2)}
+
+
+sd_noise <- function(sdn){
+ light <<- qnorm(ppoints(length(d1vel)-length(heavy)-n_noise), sd=sdl) # 
+   noise <<- qnorm(ppoints(n_noise), sd=sdn) #
+ ideal <<- sort(c(heavy, light, noise))
+ sum(abs(ideal-sort(d1vel) ))}
+
+ n_noise <- 4000 #
+ heavy <- qnorm(ppoints(length(sort(d1vel[dash]))+5000), sd=ab_heavy[[1]][2])
+ sdl<-400
+ sdn <- 100
+
+n_noise <- optimize(num_noise, c(n_noise*0.8, n_noise*1.2 ))$minimum
+ sdl <- optimize(sd_light, c(sdl*0.8, sdl*1.2 ))$minimum
+ sdn <- optimize(sd_noise, c(sdn*0.8, sdn*1.2 ))$minimum
+
+ light <- qnorm(ppoints(length(d1vel)-length(heavy)-n_noise), sd=sdl) # 
+   noise <- qnorm(ppoints(n_noise), sd=sdn) #
+ ideal <- sort(c(heavy, light, noise))
+ 
+
+ hist(d1vel,  breaks=-120000:1200000*20, xlim=c(-2000,2000),xlab=expression(paste("sorted data (m/s" ^ "2", ")")) , main="Histogram", col="gray70",border="white", ylim=c(0,2000))
+ distr <-hist(ideal, breaks=-1200:1200*20,plot=FALSE)
+  par(new=T)
+ plot(distr$mids, distr$ counts,   xlim=c(-2000,2000),  ylim=c(0, 2000), ylab="", xlab="", axes=F, main="", type="l", lwd=1)
+ distr <-hist(heavy, breaks=-1200:1200*20,plot=FALSE)
+  par(new=T)
+ plot(distr$mids, distr$ counts,   xlim=c(-2000,2000),  ylim=c(0, 2000), ylab="", xlab="", axes=F, main="", type="l", lwd=1)
+ distr <-hist(light, breaks=-1200:1200*20,plot=FALSE)
+  par(new=T)
+ plot(distr$mids, distr$ counts,   xlim=c(-2000,2000),  ylim=c(0, 2000), ylab="", xlab="", axes=F, main="", type="l", lwd=1)
+
+
+
+png(width=4000, height=4300, pointsize = 160, file="hist_d1v.png")
+par(lwd=8,  mex=0.6, mai=c(8,9,6,0.6))
+ hist(d1vel,  breaks=-120000:120000*20, xlim=c(-2000,2000),xlab=expression(paste("sorted data (m/s" ^ "2", ")")) , main="Histogram", col="gray70",border="white", ylim=c(0,1500))
+ distr <-hist(ideal, breaks=-1200:1200*20,plot=FALSE)
+  par(new=T)
+ plot(distr$mids, distr$ counts,   xlim=c(-2000,2000),  ylim=c(0, 1500), ylab="", xlab="", axes=F, main="", type="l", lwd=16)
+ distr <-hist(heavy, breaks=-1200:1200*20,plot=FALSE)
+  par(new=T)
+ plot(distr$mids, distr$ counts,   xlim=c(-2000,2000),  ylim=c(0, 1500), ylab="", xlab="", axes=F, main="", type="l", lwd=12, lty=3)
+ distr <-hist(light, breaks=-1200:1200*20,plot=FALSE)
+  par(new=T)
+plot(distr$mids, distr$ counts,   xlim=c(-2000,2000),  ylim=c(0, 1500), ylab="", xlab="", axes=F, main="", type="l", lwd=12, lty=3)
+ distr <-hist(noise, breaks=-1200:1200*20,plot=FALSE)
+  par(new=T)
+ plot(distr$mids, distr$ counts,   xlim=c(-2000,2000),  ylim=c(0, 1500), ylab="", xlab="", axes=F, main="", type="l", lwd=12, lty=3)
+axis(1, lwd=8)
+axis(2, lwd=8)
+dev.off()
+
+# reeating these optimizations could cause expansion of the noise part. 
+
+### important parameters
+
+#velocity
+  ab_dash [[1]][1]
+  ab_dash [[1]][2]
+  ab_search [[1]][1]
+  ab_search [[1]][2]
+
+#acceleration
+ ab_heavy[[1]][2]
+ ab_light[[1]][2]
+
+#duration
+  ab_dash_time [[1]][1]
+  ab_dash_time [[1]][2]
+ ab_search_time [[1]][1]
+ ab_search_time [[1]][2]
+  ab_rearing_time[[1]][1]
+  ab_rearing_time[[1]][2]
+ ab_ground_time [[1]][1]
+ ab_ground_time [[1]][2]
+
+# frequency 
+ length(vel)
+ length(dash)
+ length(rearing_duration)
+
+### indicators 
+
+# frequency
+ length(dash)/length(vel)
+ length(rearing_duration)/ ((length(vel)/30)/60)
+
+# center time 
+ 10^ab_ground_time [[1]][1]
+ 10^ab_rearing_time [[1]][1]
+ 10^ab_dash_time [[1]][1]
+ 10^ab_search_time [[1]][1]
+
+# center velocity
+ 10^ab_dash [[1]][1]
+ 10^ab_search [[1]][1]
+
+# SD of acceleration
+ ab_heavy[[1]][2]
+ ab_light[[1]][2]
+
+# arbitrary property
+  ab_dash_time [[1]][2]
+ ab_search_time [[1]][2]
+  ab_dash [[1]][2]
+  ab_search [[1]][2]
+  ab_rearing_time[[1]][2]
+ ab_ground_time [[1]][2]
+
+# Coefficient of Variation for area 
+ mad(areas_search)/median(areas_search)
+
+# strechness
+ (median(areas[dash,2]*scale_size^2)-median(areas_search))/mad(areas_search)
+
